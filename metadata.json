@@ -1,0 +1,6 @@
+{
+  "name": "考勤打卡",
+  "description": "智能考勤打卡应用：自动地理围栏打卡、手动打卡、月度统计、日历视图、导出CSV与自定义设置。",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
