@@ -2,6 +2,8 @@ package com.example.data.util
 
 import android.content.Context
 import android.content.Intent
+import android.os.Environment
+import android.widget.Toast
 import androidx.core.content.FileProvider
 import com.example.data.model.AttendanceEntity
 import java.io.File
@@ -42,6 +44,16 @@ object CsvExportUtil {
             writer.flush()
             writer.close()
 
+            // Save copy to external downloads directory for persistence
+            try {
+                val externalDir = context.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS)
+                if (externalDir != null) {
+                    file.copyTo(File(externalDir, fileName), overwrite = true)
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+
             val uri = FileProvider.getUriForFile(
                 context,
                 "${context.packageName}.fileprovider",
@@ -55,10 +67,12 @@ object CsvExportUtil {
                 addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
             }
 
+            Toast.makeText(context, "考勤CSV报告已成功生成并保存", Toast.LENGTH_SHORT).show()
             context.startActivity(Intent.createChooser(shareIntent, "分享考勤CSV数据文件"))
 
         } catch (e: Exception) {
             e.printStackTrace()
+            Toast.makeText(context, "导出失败: ${e.message}", Toast.LENGTH_SHORT).show()
         }
     }
 }

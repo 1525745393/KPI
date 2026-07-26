@@ -1,5 +1,12 @@
 package com.example.ui.screens
 
+import android.Manifest
+import android.content.pm.PackageManager
+import android.os.Build
+import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -36,12 +43,16 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.data.model.AttendanceEntity
 import com.example.ui.AttendanceViewModel
@@ -58,6 +69,33 @@ fun StatsHistoryScreen(
     val context = LocalContext.current
     val selectedMonth by viewModel.selectedMonth.collectAsStateWithLifecycle()
     val monthlyRecords by viewModel.monthlyRecords.collectAsStateWithLifecycle()
+
+    val storagePermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission()
+    ) { isGranted ->
+        if (isGranted) {
+            viewModel.exportCurrentMonthCsv(context)
+        } else {
+            Toast.makeText(context, "需要存储权限以保存并分享考勤CSV报告", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    val handleExportCsv = {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            // Android 10+ handles scoped storage / FileProvider directly
+            viewModel.exportCurrentMonthCsv(context)
+        } else {
+            val permissionCheck = ContextCompat.checkSelfPermission(
+                context,
+                Manifest.permission.WRITE_EXTERNAL_STORAGE
+            )
+            if (permissionCheck == PackageManager.PERMISSION_GRANTED) {
+                viewModel.exportCurrentMonthCsv(context)
+            } else {
+                storagePermissionLauncher.launch(Manifest.permission.WRITE_EXTERNAL_STORAGE)
+            }
+        }
+    }
 
     // Calculate metrics for current month
     val totalAttendanceDays = remember(monthlyRecords) {
@@ -160,6 +198,11 @@ fun StatsHistoryScreen(
 
         Spacer(modifier = Modifier.height(16.dp))
 
+        // Visual Attendance Trend Chart
+        AttendanceChartCard(monthlyRecords = monthlyRecords)
+
+        Spacer(modifier = Modifier.height(16.dp))
+
         // Export CSV Action Row
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -173,7 +216,7 @@ fun StatsHistoryScreen(
             )
 
             Button(
-                onClick = { viewModel.exportCurrentMonthCsv(context) },
+                onClick = { handleExportCsv() },
                 modifier = Modifier.testTag("export_csv_btn")
             ) {
                 Icon(Icons.Filled.Share, contentDescription = null, modifier = Modifier.size(16.dp))
@@ -210,6 +253,107 @@ fun StatsHistoryScreen(
                 items(monthlyRecords.sortedByDescending { it.date }) { record ->
                     HistoryRecordCard(record = record)
                     Spacer(modifier = Modifier.height(8.dp))
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun AttendanceChartCard(monthlyRecords: List<AttendanceEntity>) {
+    Card(
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        shape = RoundedCornerShape(16.dp),
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "月度考勤与出勤趋势图",
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.Bold
+                )
+
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Box(modifier = Modifier.size(10.dp).background(Color(0xFF059669), CircleShape))
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text("正常", style = MaterialTheme.typography.labelSmall)
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Box(modifier = Modifier.size(10.dp).background(Color(0xFFD97706), CircleShape))
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text("迟到/早退", style = MaterialTheme.typography.labelSmall)
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Box(modifier = Modifier.size(10.dp).background(Color(0xFFDC2626), CircleShape))
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text("缺勤", style = MaterialTheme.typography.labelSmall)
+                }
+            }
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            if (monthlyRecords.isEmpty()) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(120.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text("本月暂无统计图表数据", style = MaterialTheme.typography.bodySmall)
+                }
+            } else {
+                val sortedRecords = remember(monthlyRecords) { monthlyRecords.sortedBy { it.date } }
+                val normalColor = Color(0xFF059669)
+                val lateColor = Color(0xFFD97706)
+                val absentColor = Color(0xFFDC2626)
+                val surfaceVariant = MaterialTheme.colorScheme.surfaceVariant
+
+                Canvas(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(120.dp)
+                ) {
+                    val width = size.width
+                    val height = size.height
+                    val barCount = sortedRecords.size.coerceAtLeast(1)
+                    val barSpacing = width / (barCount * 1.5f + 1)
+                    val barWidth = barSpacing * 0.8f
+
+                    // Baseline
+                    drawLine(
+                        color = surfaceVariant,
+                        start = Offset(0f, height - 20f),
+                        end = Offset(width, height - 20f),
+                        strokeWidth = 2f
+                    )
+
+                    sortedRecords.forEachIndexed { index, record ->
+                        val x = barSpacing + index * (barWidth + barSpacing / 2)
+                        val barColor = when (record.status) {
+                            "normal" -> normalColor
+                            "late", "early" -> lateColor
+                            "absent" -> absentColor
+                            else -> normalColor
+                        }
+
+                        val barHeight = when (record.status) {
+                            "normal" -> height * 0.75f
+                            "late", "early" -> height * 0.5f
+                            "absent" -> height * 0.15f
+                            else -> height * 0.6f
+                        }
+
+                        drawRoundRect(
+                            color = barColor,
+                            topLeft = Offset(x, height - 20f - barHeight),
+                            size = Size(barWidth, barHeight),
+                            cornerRadius = CornerRadius(4f, 4f)
+                        )
+                    }
                 }
             }
         }
